@@ -1,0 +1,77 @@
+"""Tunable settings for the desktop bot.
+
+Values live in ~/.config/deskbot/config.json so you can tweak the bot's
+personality without touching code. Missing keys fall back to defaults.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+
+CONFIG_DIR = Path.home() / ".config" / "deskbot"
+CONFIG_PATH = CONFIG_DIR / "config.json"
+
+
+@dataclass
+class Config:
+    # --- rendering -------------------------------------------------
+    fps: int = 30
+    bot_size: int = 110          # px, the bot's drawn box
+    window_w: int = 260          # room for the speech bubble
+    window_h: int = 230
+    always_on_top: bool = True
+    bypass_wm: bool = False      # try True if your WM refuses to keep it on top
+
+    # --- colours (Celebi-ish graphite + warm orange) ---------------
+    body_light: str = "#3a3f47"
+    body_dark: str = "#22262c"
+    accent: str = "#ff8b3d"
+    visor: str = "#12151a"
+    glow: str = "#ffd7b0"
+
+    # --- movement --------------------------------------------------
+    follow_speed: float = 5.0        # higher = snappier
+    max_speed: float = 620.0         # px/sec
+    stop_distance: float = 95.0      # how close it parks next to the cursor
+    trail_distance: float = 80.0     # how far behind the cursor it walks
+
+    # --- behaviour timings (seconds) -------------------------------
+    cursor_idle_before_wander: float = 10.0
+    cursor_idle_before_sleep: float = 75.0
+    wander_interval: float = 8.0
+    blink_interval: float = 4.5
+    speech_duration: float = 3.5
+    fast_cursor_speed: float = 1400.0   # px/sec that counts as "whoa"
+
+    # --- personality ------------------------------------------------
+    chatty: bool = True           # occasional speech bubbles
+    follow_cursor: bool = True
+
+    # --- future hooks ----------------------------------------------
+    ollama_model: str = "llama3.1:8b"
+    ollama_url: str = "http://localhost:11434"
+
+    extra: dict = field(default_factory=dict)
+
+    # ---------------------------------------------------------------
+    @classmethod
+    def load(cls) -> "Config":
+        cfg = cls()
+        if CONFIG_PATH.exists():
+            try:
+                data = json.loads(CONFIG_PATH.read_text())
+                for key, value in data.items():
+                    if hasattr(cfg, key):
+                        setattr(cfg, key, value)
+            except (json.JSONDecodeError, OSError) as exc:
+                print(f"[deskbot] could not read config: {exc}")
+        return cfg
+
+    def save(self) -> None:
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            CONFIG_PATH.write_text(json.dumps(asdict(self), indent=2))
+        except OSError as exc:
+            print(f"[deskbot] could not save config: {exc}")
