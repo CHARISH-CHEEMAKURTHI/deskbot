@@ -1,9 +1,10 @@
 # deskbot v0.1
 
 A small animated bot that lives on your Linux desktop, walks after your cursor,
-pulls faces, and now notices when your machine is busy. Phase 1: **movement +
-expressions**. Phase 2: **activity awareness**. No app control or AI yet —
-those hook into the places marked below.
+pulls faces, notices when your machine is busy, and can now do a few things
+for you. Phase 1: **movement + expressions**. Phase 2: **activity awareness**.
+Phase 3: **actions**. Voice control and a fuller AI agent are still ahead —
+see below.
 
 ## Run it
 
@@ -30,6 +31,7 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 | Leave cursor still | ~10s → it wanders and thinks; ~75s → it falls asleep |
 | Uncheck "Follow cursor" in the right-click menu | bot stops chasing you and just roams the desktop on its own |
 | Uncheck "Notice what I'm doing" in the right-click menu | turns off activity awareness (Phase 2) |
+| "Ask deskbot…" in the right-click menu | type a request ("open firefox", "search cats on youtube", "what time is it") and it does it (Phase 3) |
 
 ## Expressions (11)
 
@@ -47,6 +49,9 @@ deskbot/
   behavior.py     Brain: modes (FOLLOW/WANDER/REST/SLEEP/DRAGGED), targets, moods
   activity.py     ActivityWatcher: polls CPU/memory/battery/foreground app,
                    nudges the brain's mood (phase 2)
+  intent.py       classifies a typed sentence into an intent via Ollama (phase 3)
+  commands.py     the actions themselves: open app, search, play music,
+                   send email, shutdown/restart (phase 3)
   pet.py          PetWindow: transparent always-on-top window, physics, menu
   main.py         entry point
 ```
@@ -72,15 +77,36 @@ All of it is a suggestion layered on top of normal behaviour (same
 entirely from the right-click menu or by setting `"activity_aware": false` in
 the config. Tune the thresholds in `~/.config/deskbot/config.json`.
 
-## Where phase 3 plugs in
+## Actions (phase 3)
 
-**Phase 3 — actions.** Add a `commands.py` that maps intents to work
-(`subprocess.Popen(["xdg-open", ...])`, email via smtplib, etc.), and let
-Ollama turn your sentence into one of those intents. `config.py` already holds
-`ollama_url` and `ollama_model`.
+Right-click → "Ask deskbot…" and type a request. `intent.py` sends it to a
+local Ollama model (`ollama_url`/`ollama_model` in config) asking for a small,
+fixed JSON shape (intent/target/query), then `commands.py` carries it out —
+opening an app, searching the web, playing something on YouTube, telling the
+time, sending an email, or shutting down/restarting. The Ollama call runs on
+a background thread so the bot keeps animating while it thinks.
+
+Needs [Ollama](https://ollama.com) running locally with `ollama_model` pulled
+(`ollama pull llama3.1:8b`, or point `ollama_model` at whatever you have).
+`send_email` additionally needs `smtp_user`/`smtp_password` in config (or the
+`DESKBOT_SMTP_USER`/`DESKBOT_SMTP_PASSWORD` env vars) — an app password, not
+your real one, if your provider offers it. Without either set up, those two
+features just report they're not configured instead of failing silently.
+
+Examples: *"open vs code"*, *"search kali linux on github"*, *"play believer
+by imagine dragons"*, *"what time is it"*, *"email jo@example.com saying I'll
+be 10 minutes late"*, *"shutdown"*.
 
 **Real sprites.** Implement `SpriteRenderer.draw()` with the same signature as
 `VectorRenderer.draw()` and swap the one line in `main.py`.
+
+## Where voice + a fuller agent plug in
+
+The intent/command split above is deliberately the same shape a voice
+frontend would use: swap "Ask deskbot…"'s text dialog for a wake-word
+listener + speech-to-text, keep calling `intent.classify()` /
+`intent.run()` exactly as-is, and speak `CommandResult.message` back
+instead of (or alongside) the speech bubble.
 
 ## Notes for your setup
 

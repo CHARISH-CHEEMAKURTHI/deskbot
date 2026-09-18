@@ -59,9 +59,17 @@ class Config:
     low_battery_percent: float = 20.0
     low_memory_percent: float = 90.0
 
-    # --- future hooks ----------------------------------------------
-    ollama_model: str = "llama3.1:8b"
+    # --- phase 3: actions --------------------------------------------
+    ollama_model: str = "llama3.1:8b"   # doubles as the intent classifier
     ollama_url: str = "http://localhost:11434"
+
+    # SMTP creds for send_email -- leave blank and set DESKBOT_SMTP_USER /
+    # DESKBOT_SMTP_PASSWORD instead if you'd rather not put a password in
+    # this file. An app password, not your real one, if the provider offers it.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
 
     extra: dict = field(default_factory=dict)
 
