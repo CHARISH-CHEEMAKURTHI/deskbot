@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import signal
 import sys
 
@@ -13,7 +14,28 @@ from .expressions import VectorRenderer
 from .pet import PetWindow
 
 
+def _ensure_xwayland_backend() -> None:
+    """Cursor polling and window positioning are unreliable on native
+    Wayland (QCursor.pos() goes stale and windows can't reposition
+    themselves), which breaks cursor-following, always-on-top, and
+    dragging alike. XWayland (Qt's "xcb" platform plugin) fixes all three,
+    so default to it on a Wayland session unless the user picked a
+    platform themselves.
+    """
+    if os.environ.get("QT_QPA_PLATFORM"):
+        return
+    if os.environ.get("WAYLAND_DISPLAY") or os.environ.get("XDG_SESSION_TYPE") == "wayland":
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
+        print(
+            "[deskbot] Wayland session detected -- running under XWayland "
+            "(QT_QPA_PLATFORM=xcb) so cursor-following, always-on-top, and "
+            "dragging all work. Export QT_QPA_PLATFORM=wayland yourself to "
+            "opt back into native Wayland."
+        )
+
+
 def main() -> int:
+    _ensure_xwayland_backend()
     cfg = Config.load()
 
     app = QApplication(sys.argv)
