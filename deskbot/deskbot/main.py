@@ -9,6 +9,7 @@ import sys
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
+from .activity import ActivityWatcher
 from .config import Config
 from .expressions import VectorRenderer
 from .pet import PetWindow
@@ -45,6 +46,12 @@ def main() -> int:
     renderer = VectorRenderer(cfg)   # swap for SpriteRenderer once art exists
     pet = PetWindow(cfg, renderer)
     pet.show()
+
+    watcher = ActivityWatcher(cfg)
+    activity_timer = QTimer()
+    activity_timer.setInterval(max(500, int(cfg.activity_poll_interval * 1000)))
+    activity_timer.timeout.connect(lambda: watcher.poll(pet.brain))
+    activity_timer.start()
 
     # let Ctrl+C in the terminal kill it
     signal.signal(signal.SIGINT, signal.SIG_DFL)

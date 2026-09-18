@@ -1,8 +1,9 @@
 # deskbot v0.1
 
 A small animated bot that lives on your Linux desktop, walks after your cursor,
-and pulls faces. Phase 1 of the plan: **movement + expressions**. No AI, no app
-control yet — those hook into the places marked below.
+pulls faces, and now notices when your machine is busy. Phase 1: **movement +
+expressions**. Phase 2: **activity awareness**. No app control or AI yet —
+those hook into the places marked below.
 
 ## Run it
 
@@ -28,6 +29,7 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 | Right-click | menu: follow on/off, chatty on/off, force any mood, save settings, quit |
 | Leave cursor still | ~10s → it wanders and thinks; ~75s → it falls asleep |
 | Uncheck "Follow cursor" in the right-click menu | bot stops chasing you and just roams the desktop on its own |
+| Uncheck "Notice what I'm doing" in the right-click menu | turns off activity awareness (Phase 2) |
 
 ## Expressions (11)
 
@@ -43,22 +45,34 @@ deskbot/
   expressions.py  Expression enum + VectorRenderer (all the drawing)
                   SpriteRenderer stub for when you draw real art
   behavior.py     Brain: modes (FOLLOW/WANDER/REST/SLEEP/DRAGGED), targets, moods
+  activity.py     ActivityWatcher: polls CPU/memory/battery/foreground app,
+                   nudges the brain's mood (phase 2)
   pet.py          PetWindow: transparent always-on-top window, physics, menu
   main.py         entry point
 ```
 
-## Where phase 2 and 3 plug in
+## Activity awareness (phase 2)
 
-**Phase 2 — context-aware emotions.** Write a watcher that polls the active
-window / CPU / process list, then call:
+Every few seconds (`activity_poll_interval`) `ActivityWatcher.poll()` checks:
 
-```python
-pet.brain.set_mood(Expression.THINKING, seconds=5)
-pet.brain.set_mood(Expression.ANGRY, 4, say="come on, load already!")
-```
+- **Foreground app pegging the CPU** (`busy_cpu_percent`) → after
+  `loading_after_seconds` the bot goes THINKING ("hmm, loading..."); if it's
+  still going after `stuck_after_seconds` the bot gets ANGRY ("still going??").
+  Needs an X11 connection to know which window is focused (via `python-xlib`)
+  — it has one automatically since deskbot runs under XWayland, but on a setup
+  where that's unavailable this one signal just quietly drops out.
+- **Overall system load** (`system_busy_percent`) → same THINKING nudge, as a
+  fallback that doesn't need to know which window is focused (e.g. a build
+  running in an unfocused terminal).
+- **Low battery** (`low_battery_percent`, unplugged) → SAD, once per discharge.
+- **High memory pressure** (`low_memory_percent`) → SURPRISED.
 
-That's the whole interface. The brain treats it as a temporary override and
-goes back to normal behaviour afterwards.
+All of it is a suggestion layered on top of normal behaviour (same
+`brain.set_mood()` hook the menu's "force mood" uses) and can be switched off
+entirely from the right-click menu or by setting `"activity_aware": false` in
+the config. Tune the thresholds in `~/.config/deskbot/config.json`.
+
+## Where phase 3 plugs in
 
 **Phase 3 — actions.** Add a `commands.py` that maps intents to work
 (`subprocess.Popen(["xdg-open", ...])`, email via smtplib, etc.), and let

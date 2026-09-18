@@ -216,6 +216,11 @@ class PetWindow(QWidget):
         chatty.toggled.connect(lambda v: setattr(self.cfg, "chatty", v))
         menu.addAction(chatty)
 
+        activity_aware = QAction("Notice what I'm doing", menu, checkable=True)
+        activity_aware.setChecked(self.cfg.activity_aware)
+        activity_aware.toggled.connect(lambda v: setattr(self.cfg, "activity_aware", v))
+        menu.addAction(activity_aware)
+
         moods = menu.addMenu("Mood")
         for expr in Expression:
             act = QAction(expr.label, moods)

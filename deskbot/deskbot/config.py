@@ -49,6 +49,16 @@ class Config:
     chatty: bool = True           # occasional speech bubbles
     follow_cursor: bool = True
 
+    # --- phase 2: activity awareness --------------------------------
+    activity_aware: bool = True        # watch system + foreground app, react
+    activity_poll_interval: float = 3.0   # seconds between activity checks
+    busy_cpu_percent: float = 60.0        # foreground app CPU%% counted as "working"
+    system_busy_percent: float = 85.0     # overall CPU%% counted as "under load"
+    loading_after_seconds: float = 6.0    # how long before that counts as "loading"
+    stuck_after_seconds: float = 25.0     # how long before the bot gets impatient
+    low_battery_percent: float = 20.0
+    low_memory_percent: float = 90.0
+
     # --- future hooks ----------------------------------------------
     ollama_model: str = "llama3.1:8b"
     ollama_url: str = "http://localhost:11434"
