@@ -23,10 +23,11 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 | Action | Result |
 |---|---|
 | Move your cursor | bot walks after you, parks beside you |
-| Left-drag the bot | pick it up and drop it anywhere |
+| Left-drag the bot | pick it up and drop it anywhere on the desktop |
 | Double-click | it laughs |
 | Right-click | menu: follow on/off, chatty on/off, force any mood, save settings, quit |
 | Leave cursor still | ~10s → it wanders and thinks; ~75s → it falls asleep |
+| Uncheck "Follow cursor" in the right-click menu | bot stops chasing you and just roams the desktop on its own |
 
 ## Expressions (11)
 
@@ -72,9 +73,12 @@ Ollama turn your sentence into one of those intents. `config.py` already holds
 - Built and tested against **X11** (Mint/Cinnamon). Cursor polling via
   `QCursor.pos()` and always-on-top both work there.
 - On **Wayland** (Hyprland/Plasma), `QCursor.pos()` returns stale coordinates
-  and windows can't position themselves. If you're on Wayland, either run it
-  under XWayland (`QT_QPA_PLATFORM=xcb ./run.sh`) or we swap the cursor source
-  for a libinput / compositor-specific one later.
+  and windows can't position themselves, which breaks cursor-following,
+  always-on-top, and dragging the bot around. `deskbot` now detects a Wayland
+  session automatically and runs itself under XWayland
+  (`QT_QPA_PLATFORM=xcb`) so all three keep working, with no setup needed. If
+  you'd rather try native Wayland anyway, `export QT_QPA_PLATFORM=wayland`
+  before launching.
 - If the bot hides behind other windows, set `"bypass_wm": true` in
   `~/.config/deskbot/config.json`.
 
