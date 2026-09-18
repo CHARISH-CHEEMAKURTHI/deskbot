@@ -11,7 +11,7 @@ import math
 import random
 import time
 
-from PyQt6.QtCore import QPoint, QPointF, QRectF, Qt, QTimer
+from PyQt6.QtCore import QPoint, QPointF, QRectF, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QColor,
@@ -22,10 +22,38 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPen,
 )
-from PyQt6.QtWidgets import QApplication, QMenu, QWidget
+from PyQt6.QtWidgets import QApplication, QInputDialog, QMenu, QWidget
 
 from .behavior import Brain, Mode
+from .commands import CommandResult
 from .expressions import Expression
+
+
+class _IntentWorker(QThread):
+    """Runs Phase 3's classify-then-act off the GUI thread -- the Ollama
+    call is a blocking network request, and this keeps the bot animating
+    while it waits."""
+
+    done = pyqtSignal(object)
+
+    def __init__(self, cfg, text: str, parent=None):
+        super().__init__(parent)
+        self.cfg = cfg
+        self.text = text
+
+    def run(self) -> None:
+        from . import intent as intent_mod
+
+        try:
+            parsed = intent_mod.classify(self.cfg, self.text)
+            result = (
+                intent_mod.run(self.cfg, parsed)
+                if parsed is not None
+                else CommandResult("didn't understand that.", ok=False)
+            )
+        except Exception as exc:
+            result = CommandResult(f"something went wrong: {exc}", ok=False)
+        self.done.emit(result)
 
 
 class PetWindow(QWidget):
@@ -62,6 +90,7 @@ class PetWindow(QWidget):
 
         self._dragging = False
         self._drag_offset = QPoint()
+        self._intent_worker: _IntentWorker | None = None
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
@@ -230,6 +259,11 @@ class PetWindow(QWidget):
             moods.addAction(act)
 
         menu.addSeparator()
+        ask = QAction("Ask deskbot…", menu)
+        ask.triggered.connect(self._ask_dialog)
+        menu.addAction(ask)
+
+        menu.addSeparator()
         save = QAction("Save settings", menu)
         save.triggered.connect(self.cfg.save)
         menu.addAction(save)
@@ -243,3 +277,18 @@ class PetWindow(QWidget):
     def _toggle_follow(self, value: bool) -> None:
         self.cfg.follow_cursor = value
         self.brain.say("following you" if value else "doing my own thing")
+
+    def _ask_dialog(self) -> None:
+        text, ok = QInputDialog.getText(self, "Ask deskbot", "What do you need?")
+        if not ok or not text.strip():
+            return
+        self.brain.set_mood(Expression.THINKING, 30.0, say="on it...")
+        worker = _IntentWorker(self.cfg, text.strip(), self)
+        worker.done.connect(self._on_command_result)
+        worker.finished.connect(worker.deleteLater)
+        self._intent_worker = worker  # keep a reference so it isn't GC'd mid-flight
+        worker.start()
+
+    def _on_command_result(self, result: CommandResult) -> None:
+        expr = Expression.HAPPY if result.ok else Expression.SAD
+        self.brain.set_mood(expr, 4.0, say=result.message)
