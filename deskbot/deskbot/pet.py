@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import math
 import random
+import threading
 import time
 
-from PyQt6.QtCore import QPoint, QPointF, QRectF, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, QPointF, QRectF, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QColor,
@@ -54,6 +55,68 @@ class _ClassifyWorker(QThread):
             self.classified.emit(None, exc)
 
 
+class _WhatsAppBridge(QObject):
+    """Thread-safe hand-off from whatsapp.py's webhook server (its own
+    background thread) into the GUI thread -- for anything that needs
+    Qt: a confirmation dialog, or the desktop bot's own mood/speech.
+
+    Qt signals are safe to emit from any thread; the connected slot still
+    runs on whichever thread owns this object, which is the GUI thread
+    since PetWindow creates it with itself as parent."""
+
+    _run_action_signal = pyqtSignal(object, str, dict)
+    _say_signal = pyqtSignal(str)
+
+    def __init__(self, pet_window: "PetWindow"):
+        super().__init__(pet_window)
+        self.pet_window = pet_window
+        self._run_action_signal.connect(self._on_run_action)
+        self._say_signal.connect(self._on_say)
+
+    def run_action_blocking(self, parsed, via: str = "WhatsApp", timeout: float = 120.0) -> str:
+        """Call from a non-GUI thread. Blocks until the GUI thread has
+        confirmed (if needed) and executed the action; returns the
+        resulting message to speak/send back."""
+        box: dict = {"event": threading.Event(), "result": "took too long, try again"}
+        self._run_action_signal.emit(parsed, via, box)
+        box["event"].wait(timeout=timeout)
+        return box["result"]
+
+    def say_async(self, text: str) -> None:
+        """Fire-and-forget: makes the desktop bot itself react/speak."""
+        self._say_signal.emit(text)
+
+    def _on_run_action(self, parsed, via: str, box: dict) -> None:
+        from . import intent as intent_mod
+
+        pw = self.pet_window
+        if intent_mod.needs_confirmation(parsed):
+            question = intent_mod.confirmation_text(pw.cfg, parsed) + f"\n\n(requested via {via})"
+            choice = QMessageBox.question(
+                pw,
+                "deskbot: confirm",
+                question,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                pw._on_command_result(CommandResult("okay, not doing that.", ok=True))
+                box["result"] = "okay, not doing that."
+                box["event"].set()
+                return
+
+        try:
+            result = intent_mod.run(pw.cfg, parsed)
+        except Exception as exc:
+            result = CommandResult(f"something went wrong: {exc}", ok=False)
+        pw._on_command_result(result)
+        box["result"] = result.message
+        box["event"].set()
+
+    def _on_say(self, text: str) -> None:
+        self.pet_window.brain.set_mood(Expression.HAPPY, 4.0, say=text)
+
+
 class PetWindow(QWidget):
     def __init__(self, cfg, renderer):
         super().__init__()
@@ -89,6 +152,7 @@ class PetWindow(QWidget):
         self._dragging = False
         self._drag_offset = QPoint()
         self._intent_worker: _ClassifyWorker | None = None
+        self.whatsapp_bridge = _WhatsAppBridge(self)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)

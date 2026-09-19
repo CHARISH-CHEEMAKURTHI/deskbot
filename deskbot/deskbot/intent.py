@@ -1,11 +1,11 @@
 """Phase 3: turns a typed sentence into one of commands.py's actions.
 
 Ask deskbot something via the right-click menu's "Ask deskbot..." dialog
-and this classifies it with a local Ollama model (the same one
-config.py's ollama_url/ollama_model already point at) into a small, fixed
-set of intents, then commands.py carries it out. The `ollama` package is
-only imported inside classify() so a deskbot install that never uses this
-feature doesn't need it at startup.
+(or whatsapp.py's two-way chat) and this classifies it with a local Ollama
+model (the same one config.py's ollama_url/ollama_model already point at)
+into a small, fixed set of intents, then commands.py carries it out. The
+`ollama` package is only imported inside classify()/chat() so a deskbot
+install that never uses this feature doesn't need it at startup.
 """
 
 from __future__ import annotations
@@ -87,6 +87,34 @@ def confirmation_text(cfg, parsed: Intent) -> str:
         who = f"{parsed.target} ({number})" if number else str(parsed.target)
         return f"Open WhatsApp to {who} with this message?\n\n{parsed.query}"
     return f"Go ahead with {parsed.intent}?"
+
+
+CHAT_SYSTEM_PROMPT = """You are deskbot, a small friendly desktop companion,
+chatting with your owner over WhatsApp. Keep replies short and casual --
+one to three sentences, like a text message, not an essay.
+
+Actions (opening apps, searching, playing music, email, WhatsApp, shutdown/
+restart) are handled by a separate system before your reply is ever
+requested, so you're only ever seeing messages that weren't one of those --
+just have a normal conversation."""
+
+
+def chat(cfg, history: list[tuple[str, str]], text: str) -> str:
+    """A plain conversational reply (no JSON schema), with `history` --
+    a list of (role, text) pairs, oldest first, role "user" or "bot" --
+    folded in as context. Used for WhatsApp messages that classify() didn't
+    recognize as an action."""
+    import ollama
+
+    messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+    turns = int(getattr(cfg, "chat_memory_turns", 20))
+    for role, content in history[-turns:]:
+        messages.append({"role": "user" if role == "user" else "assistant", "content": content})
+    messages.append({"role": "user", "content": text})
+
+    client = ollama.Client(host=cfg.ollama_url)
+    response = client.chat(model=cfg.ollama_model, messages=messages, options={"temperature": 0.7})
+    return response.message.content.strip()
 
 
 def run(cfg, parsed: Intent) -> commands.CommandResult:

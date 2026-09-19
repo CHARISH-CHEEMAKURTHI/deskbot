@@ -49,9 +49,12 @@ deskbot/
   behavior.py     Brain: modes (FOLLOW/WANDER/REST/SLEEP/DRAGGED), targets, moods
   activity.py     ActivityWatcher: polls CPU/memory/battery/foreground app,
                    nudges the brain's mood (phase 2)
-  intent.py       classifies a typed sentence into an intent via Ollama (phase 3)
+  intent.py       classifies a typed sentence into an intent via Ollama (phase 3);
+                   also intent.chat() for open-ended conversation
   commands.py     the actions themselves: open app, search, play music,
                    send email, send WhatsApp, shutdown/restart (phase 3)
+  whatsapp.py     two-way WhatsApp chat over the official Business API:
+                   webhook server, per-sender history, dispatch (phase 3)
   pet.py          PetWindow: transparent always-on-top window, physics, menu
   main.py         entry point
 ```
@@ -118,6 +121,55 @@ mechanism, not a scripted/unofficial send) with your message pre-filled — you
 still hit send yourself in WhatsApp. That's intentional: it avoids GUI-automation
 dependencies and any risk of WhatsApp treating the account as running an
 unofficial bot.
+
+### Two-way chat over WhatsApp itself
+
+Everything above is *you* talking to deskbot on the desktop. `whatsapp.py`
+instead lets you message deskbot in WhatsApp directly, from anywhere, and it
+answers back in the same chat — free-form conversation (with memory of the
+last `chat_memory_turns` turns) that falls back to the same intent system
+above for anything actionable, and Ollama for a plain reply otherwise.
+
+This is a **different mechanism** from `send_whatsapp` above. That one only
+ever *sends* (a `wa.me` link), so an unofficial approach is fine. This one has
+to *receive* your messages too, and unofficial WhatsApp Web automation for
+that carries real risk of your number getting banned — so this uses the
+official **WhatsApp Business Cloud API** instead, which means a one-time setup
+through Meta, but no ToS/ban risk and no fragile browser scripting:
+
+1. Off by default (`whatsapp_business_enabled: false`) — nothing listens on
+   any port unless you turn it on.
+2. Create a free [Meta Developer](https://developers.facebook.com) account,
+   add the **WhatsApp** product to an app. Meta gives you a free test number,
+   an access token, and a phone number ID.
+3. Put those in config: `whatsapp_business_enabled: true`,
+   `whatsapp_access_token` (or the `DESKBOT_WHATSAPP_ACCESS_TOKEN` env var),
+   `whatsapp_phone_number_id`.
+4. Pick your own `whatsapp_verify_token` (any string you make up) and put the
+   same value in both config and Meta's webhook setup page.
+5. deskbot needs to be reachable from Meta's servers at
+   `http://<your-address>:<whatsapp_webhook_port>/` (default port `8765`) —
+   easiest for testing is something like `ngrok http 8765` and pasting the
+   `https://...ngrok...` URL into Meta's webhook config; for a permanent setup
+   you'd want a real domain/port-forward instead.
+6. **Set `whatsapp_allowed_numbers`** to your own phone number(s) (same
+   format as `whatsapp_contacts`, e.g. `["15551234567"]`). This is the most
+   important field: deskbot silently ignores anyone messaging that business
+   number who isn't on this list, so a stranger who finds the number can't
+   chat with your bot (or, worse, trigger an action's confirmation dialog).
+
+Chat history is kept per-sender in `~/.config/deskbot/whatsapp_history.json`
+(capped at `chat_memory_turns` each) purely as conversation context — it
+isn't used for anything else.
+
+**The confirmation dialogs still show on your desktop, not in WhatsApp** —
+there's no way to show a native dialog inside a WhatsApp chat, so if a
+WhatsApp message resolves to `shutdown`/`restart`/`send_email`/`send_whatsapp`,
+deskbot pops the same Yes/No dialog on your screen (labeled "requested via
+WhatsApp") and simply doesn't reply until it's answered there, up to a 2
+minute timeout. That means these four actions only actually happen while
+you're at your desk to confirm them — asking "shut down the pc" from your
+phone while you're out won't do anything until you're back to click Yes.
 
 **Real sprites.** Implement `SpriteRenderer.draw()` with the same signature as
 `VectorRenderer.draw()` and swap the one line in `main.py`.
