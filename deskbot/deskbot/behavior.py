@@ -57,6 +57,7 @@ class Brain:
         self._cursor_still_for = 0.0
         self._cursor_ever_moved = False
         self._blind_warned = False
+        self._hold_until = 0.0
         self._wander_target: tuple[float, float] | None = None
         self._next_wander = 0.0
         self._next_chat = time.monotonic() + random.uniform(25, 60)
@@ -74,6 +75,13 @@ class Brain:
         self._forced_until = time.monotonic() + seconds
         if say:
             self.say(say)
+
+    def hold_position(self, seconds: float = 6.0) -> None:
+        """Stay put where you were just put. Called after a drag-drop: the
+        whole point of dropping the bot somewhere is that it stays there,
+        so it must not immediately trot back to the cursor or resume
+        roaming the moment you let go."""
+        self._hold_until = time.monotonic() + seconds
 
     def say(self, text: str, seconds: float | None = None) -> None:
         self._speech = text
@@ -128,6 +136,11 @@ class Brain:
         if self.mode is Mode.DRAGGED:
             return
 
+        if now < self._hold_until:
+            self.mode = Mode.REST
+            self._wander_target = None
+            return
+
         blind = self._cursor_is_blind()
         if not self.cfg.follow_cursor or blind:
             if blind and not self._blind_warned:
@@ -159,7 +172,7 @@ class Brain:
             self.mode = Mode.REST
 
     def _pick_target(self, cursor, pos, bounds, now: float):
-        if self.mode is Mode.DRAGGED:
+        if self.mode is Mode.DRAGGED or now < self._hold_until:
             return pos
 
         if self.mode in (Mode.WANDER, Mode.SLEEP):

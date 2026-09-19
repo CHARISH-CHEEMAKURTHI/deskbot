@@ -48,6 +48,7 @@ class Config:
     # --- personality ------------------------------------------------
     chatty: bool = True           # occasional speech bubbles
     follow_cursor: bool = True
+    hold_after_drop: float = 6.0  # secs it stays put after you drag it somewhere
 
     # --- phase 2: activity awareness --------------------------------
     activity_aware: bool = True        # watch system + foreground app, react
@@ -60,7 +61,7 @@ class Config:
     low_memory_percent: float = 90.0
 
     # --- phase 3: actions --------------------------------------------
-    ollama_model: str = "llama3.1:8b"   # doubles as the intent classifier
+    ollama_model: str = "qwen3:8b"   # doubles as the intent classifier
     ollama_url: str = "http://localhost:11434"
 
     # SMTP creds for send_email -- leave blank and set DESKBOT_SMTP_USER /

@@ -25,7 +25,7 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 | Action | Result |
 |---|---|
 | Move your cursor | bot walks after you, parks beside you |
-| Left-drag the bot | pick it up and drop it anywhere on the desktop |
+| Left-drag the bot | pick it up and drop it anywhere; it stays put for `hold_after_drop` seconds (6 by default) before wandering off again |
 | Double-click | it laughs |
 | Right-click | menu: follow on/off, chatty on/off, force any mood, save settings, quit |
 | Leave cursor still | ~10s → it wanders and thinks; ~75s → it falls asleep |
@@ -244,8 +244,11 @@ same Yes/No dialog rather than just doing it.
   for whatever is wrong.
 - If the configured `ollama_model` isn't pulled, deskbot **falls back to a
   model you do have** (and says which) rather than failing — so a fresh Ollama
-  install works without editing config. `ollama pull llama3.1:8b` if you want
-  the default.
+  install works without editing config.
+- **Reasoning models work** (the default is `qwen3:8b`). Models like qwen3 and
+  deepseek-r1 emit a `<think>…</think>` scratchpad in their reply; deskbot
+  strips it before parsing intents or speaking a reply, so it can't break JSON
+  parsing or get read aloud.
 - If the bot hides behind other windows, set `"bypass_wm": true` in
   `~/.config/deskbot/config.json`.
 

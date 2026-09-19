@@ -151,6 +151,7 @@ class PetWindow(QWidget):
         self.speech: str | None = None
 
         self._dragging = False
+        self._no_button_since: float | None = None
         self._drag_offset = QPoint()
         self._intent_worker: _ClassifyWorker | None = None
         self.agent_bridge = _AgentBridge(self)
@@ -182,9 +183,20 @@ class PetWindow(QWidget):
         # A mouse-release can go missing (a lost grab, a click that ends over
         # another window), which would otherwise leave the bot pinned in
         # DRAGGED mode forever, never moving again.
-        if self._dragging and QApplication.mouseButtons() == Qt.MouseButton.NoButton:
-            self._dragging = False
-            self.brain.mode = Mode.REST
+        #
+        # Debounced on purpose: mouseButtons() is a platform query, and if it
+        # ever reports NoButton mid-drag (XWayland grabs are not always
+        # faithful) an instant release would yank the bot out of your hand and
+        # send it back to whatever it was doing. Only a sustained no-button
+        # reading counts as a genuinely lost release.
+        if self._dragging:
+            if QApplication.mouseButtons() == Qt.MouseButton.NoButton:
+                if self._no_button_since is None:
+                    self._no_button_since = now
+                elif now - self._no_button_since > 0.75:
+                    self._end_drag()
+            else:
+                self._no_button_since = None
 
         cursor = QCursor.pos()
         decision = self.brain.update(
@@ -294,10 +306,18 @@ class PetWindow(QWidget):
             self.pos_f = [top_left.x() + self.anchor.x(), top_left.y() + self.anchor.y()]
             self.vel = [0.0, 0.0]
 
+    def _end_drag(self) -> None:
+        """Let go of the bot and leave it where it was dropped, rather than
+        letting it walk straight back to the cursor or resume roaming."""
+        self._dragging = False
+        self._no_button_since = None
+        self.brain.mode = Mode.REST
+        self.vel = [0.0, 0.0]
+        self.brain.hold_position(float(getattr(self.cfg, "hold_after_drop", 6.0)))
+
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton and self._dragging:
-            self._dragging = False
-            self.brain.mode = Mode.REST
+            self._end_drag()
             self.brain.set_mood(Expression.HAPPY, 1.5)
 
     def mouseDoubleClickEvent(self, event) -> None:
