@@ -16,29 +16,51 @@ from .expressions import VectorRenderer
 from .pet import PetWindow
 
 
-def _ensure_xwayland_backend() -> None:
-    """Cursor polling and window positioning are unreliable on native
-    Wayland (QCursor.pos() goes stale and windows can't reposition
-    themselves), which breaks cursor-following, always-on-top, and
-    dragging alike. XWayland (Qt's "xcb" platform plugin) fixes all three,
-    so default to it on a Wayland session unless the user picked a
-    platform themselves.
+def _ensure_xwayland_backend() -> bool:
+    """Window positioning doesn't work at all on native Wayland (windows
+    can't place themselves), so default to XWayland (Qt's "xcb" plugin) on
+    a Wayland session unless the user picked a platform themselves. That
+    fixes always-on-top and dragging.
+
+    It does NOT fix cursor-following: XWayland only sees the pointer while
+    it's over one of our own windows, and Wayland has no protocol for
+    asking where the global pointer is. behavior.py detects the resulting
+    frozen cursor and roams instead; --doctor explains it.
+
+    Returns True if this is a Wayland session.
     """
-    if os.environ.get("QT_QPA_PLATFORM"):
-        return
-    if os.environ.get("WAYLAND_DISPLAY") or os.environ.get("XDG_SESSION_TYPE") == "wayland":
-        os.environ["QT_QPA_PLATFORM"] = "xcb"
-        print(
-            "[deskbot] Wayland session detected -- running under XWayland "
-            "(QT_QPA_PLATFORM=xcb) so cursor-following, always-on-top, and "
-            "dragging all work. Export QT_QPA_PLATFORM=wayland yourself to "
-            "opt back into native Wayland."
-        )
+    wayland = bool(os.environ.get("WAYLAND_DISPLAY")) or (
+        os.environ.get("XDG_SESSION_TYPE") == "wayland"
+    )
+    if not wayland or os.environ.get("QT_QPA_PLATFORM"):
+        return wayland
+
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
+    print(
+        "[deskbot] Wayland session detected -- running under XWayland "
+        "(QT_QPA_PLATFORM=xcb) so always-on-top and dragging work. Note that "
+        "cursor-following cannot work on Wayland; log in to an Xorg/X11 "
+        "session for that. Run `python -m deskbot --doctor` for details."
+    )
+    return wayland
 
 
 def main() -> int:
-    _ensure_xwayland_backend()
+    wayland = _ensure_xwayland_backend()
     cfg = Config.load()
+    cfg.wayland_session = wayland  # runtime-only; not persisted by cfg.save()
+
+    if "--doctor" in sys.argv:
+        from PyQt6.QtGui import QGuiApplication
+
+        from .doctor import run as run_doctor
+
+        # Held in a local, not discarded -- a collected QGuiApplication takes
+        # the screen list and QCursor.pos() down with it.
+        doctor_app = QGuiApplication(sys.argv)
+        code = run_doctor(cfg)
+        del doctor_app
+        return code
 
     app = QApplication(sys.argv)
     app.setApplicationName("deskbot")

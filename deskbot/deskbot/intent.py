@@ -10,6 +10,10 @@ install that never uses this feature doesn't need it at startup.
 
 from __future__ import annotations
 
+import json
+import urllib.error
+import urllib.request
+
 from pydantic import BaseModel
 
 from . import commands
@@ -50,6 +54,45 @@ class Intent(BaseModel):
     confidence: float = 0.0
 
 
+_announced_fallback: str | None = None
+
+
+def available_models(cfg) -> list[str]:
+    """Model names Ollama actually has pulled."""
+    url = cfg.ollama_url.rstrip("/") + "/api/tags"
+    with urllib.request.urlopen(url, timeout=5) as resp:
+        data = json.loads(resp.read())
+    return [m.get("name", "") for m in data.get("models", []) if m.get("name")]
+
+
+def resolve_model(cfg) -> str:
+    """The configured model if Ollama has it, otherwise the closest thing
+    it does have. A fresh Ollama install rarely has exactly the model
+    config defaults to, and dying with a 404 while a perfectly usable
+    model sits right there isn't helpful."""
+    global _announced_fallback
+    want = cfg.ollama_model
+    try:
+        models = available_models(cfg)
+    except (urllib.error.URLError, OSError, json.JSONDecodeError):
+        return want  # can't tell -- let the real call report the real error
+
+    if not models:
+        raise RuntimeError(f"Ollama has no models pulled yet -- run: ollama pull {want}")
+    if want in models:
+        return want
+
+    base = want.split(":")[0]
+    chosen = next((m for m in models if m.split(":")[0] == base), models[0])
+    if _announced_fallback != chosen:
+        _announced_fallback = chosen
+        print(
+            f"[deskbot] model {want!r} isn't pulled; using {chosen!r} instead. "
+            f"Run `ollama pull {want}` or set \"ollama_model\": \"{chosen}\" in config.json."
+        )
+    return chosen
+
+
 def classify(cfg, text: str) -> Intent | None:
     import ollama
 
@@ -60,7 +103,7 @@ def classify(cfg, text: str) -> Intent | None:
 
     client = ollama.Client(host=cfg.ollama_url)
     response = client.chat(
-        model=cfg.ollama_model,
+        model=resolve_model(cfg),
         messages=[
             {"role": "system", "content": prompt},
             {"role": "user", "content": text},
@@ -113,7 +156,9 @@ def chat(cfg, history: list[tuple[str, str]], text: str) -> str:
     messages.append({"role": "user", "content": text})
 
     client = ollama.Client(host=cfg.ollama_url)
-    response = client.chat(model=cfg.ollama_model, messages=messages, options={"temperature": 0.7})
+    response = client.chat(
+        model=resolve_model(cfg), messages=messages, options={"temperature": 0.7}
+    )
     return response.message.content.strip()
 
 

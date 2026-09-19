@@ -55,6 +55,7 @@ deskbot/
                    send email, send WhatsApp, shutdown/restart (phase 3)
   whatsapp.py     two-way WhatsApp chat over the official Business API:
                    webhook server, per-sender history, dispatch (phase 3)
+  doctor.py       `--doctor` self-check: session/cursor/Ollama/X11/config
   pet.py          PetWindow: transparent always-on-top window, physics, menu
   main.py         entry point
 ```
@@ -186,13 +187,32 @@ instead of (or alongside) the speech bubble.
 
 - Built and tested against **X11** (Mint/Cinnamon). Cursor polling via
   `QCursor.pos()` and always-on-top both work there.
-- On **Wayland** (Hyprland/Plasma), `QCursor.pos()` returns stale coordinates
-  and windows can't position themselves, which breaks cursor-following,
-  always-on-top, and dragging the bot around. `deskbot` now detects a Wayland
-  session automatically and runs itself under XWayland
-  (`QT_QPA_PLATFORM=xcb`) so all three keep working, with no setup needed. If
-  you'd rather try native Wayland anyway, `export QT_QPA_PLATFORM=wayland`
-  before launching.
+- On **Wayland** (Pop!_OS COSMIC, GNOME Wayland, Hyprland, Plasma), windows
+  can't position themselves at all, so deskbot detects a Wayland session and
+  runs itself under XWayland (`QT_QPA_PLATFORM=xcb`). That fixes
+  **always-on-top and dragging**. Pass `QT_QPA_PLATFORM=wayland` yourself to
+  opt out.
+- **Cursor-following cannot work on Wayland**, XWayland or not: XWayland only
+  sees the pointer while it is over one of deskbot's own windows, and Wayland
+  deliberately provides no protocol for a client to ask where the global
+  pointer is. deskbot notices the frozen cursor, says so, and **roams the
+  desktop on its own** instead of standing still or falling asleep. For real
+  cursor-following, log out and pick the **Xorg / X11** session at the login
+  screen (gear icon) — everything works there.
+- **Something not working? Run the doctor first:**
+
+  ```bash
+  ./.venv/bin/python -m deskbot --doctor
+  ```
+
+  It checks session type, whether cursor data is actually live, the X11
+  connection phase 2 needs, whether Ollama is reachable and which models are
+  really pulled, and what's configured for email/WhatsApp — and prints the fix
+  for whatever is wrong.
+- If the configured `ollama_model` isn't pulled, deskbot **falls back to a
+  model you do have** (and says which) rather than failing — so a fresh Ollama
+  install works without editing config. `ollama pull llama3.1:8b` if you want
+  the default.
 - If the bot hides behind other windows, set `"bypass_wm": true` in
   `~/.config/deskbot/config.json`.
 

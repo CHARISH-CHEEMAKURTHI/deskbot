@@ -177,6 +177,13 @@ class PetWindow(QWidget):
         if dt <= 0:
             return
 
+        # A mouse-release can go missing (a lost grab, a click that ends over
+        # another window), which would otherwise leave the bot pinned in
+        # DRAGGED mode forever, never moving again.
+        if self._dragging and QApplication.mouseButtons() == Qt.MouseButton.NoButton:
+            self._dragging = False
+            self.brain.mode = Mode.REST
+
         cursor = QCursor.pos()
         decision = self.brain.update(
             dt, (cursor.x(), cursor.y()), tuple(self.pos_f), self.bounds
