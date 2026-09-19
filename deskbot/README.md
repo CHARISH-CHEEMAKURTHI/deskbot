@@ -51,7 +51,7 @@ deskbot/
                    nudges the brain's mood (phase 2)
   intent.py       classifies a typed sentence into an intent via Ollama (phase 3)
   commands.py     the actions themselves: open app, search, play music,
-                   send email, shutdown/restart (phase 3)
+                   send email, send WhatsApp, shutdown/restart (phase 3)
   pet.py          PetWindow: transparent always-on-top window, physics, menu
   main.py         entry point
 ```
@@ -83,19 +83,41 @@ Right-click → "Ask deskbot…" and type a request. `intent.py` sends it to a
 local Ollama model (`ollama_url`/`ollama_model` in config) asking for a small,
 fixed JSON shape (intent/target/query), then `commands.py` carries it out —
 opening an app, searching the web, playing something on YouTube, telling the
-time, sending an email, or shutting down/restarting. The Ollama call runs on
-a background thread so the bot keeps animating while it thinks.
+time, sending an email, messaging a WhatsApp contact, or shutting
+down/restarting. The Ollama call runs on a background thread so the bot keeps
+animating while it thinks; the action itself always runs back on the GUI
+thread afterward, since anything risky (see below) needs a dialog.
 
 Needs [Ollama](https://ollama.com) running locally with `ollama_model` pulled
 (`ollama pull llama3.1:8b`, or point `ollama_model` at whatever you have).
 `send_email` additionally needs `smtp_user`/`smtp_password` in config (or the
 `DESKBOT_SMTP_USER`/`DESKBOT_SMTP_PASSWORD` env vars) — an app password, not
-your real one, if your provider offers it. Without either set up, those two
-features just report they're not configured instead of failing silently.
+your real one, if your provider offers it. `send_whatsapp` needs
+`whatsapp_contacts` in config: a lowercase-name → phone-number map, e.g.
+`{"mom": "15551234567"}` (country code, no "+" or spaces) — it will only ever
+message people on this list, and refuses (with the list of who it *does* know)
+for anyone else. Without email/WhatsApp set up, those features just report
+they're not configured instead of failing silently.
 
 Examples: *"open vs code"*, *"search kali linux on github"*, *"play believer
 by imagine dragons"*, *"what time is it"*, *"email jo@example.com saying I'll
-be 10 minutes late"*, *"shutdown"*.
+be 10 minutes late"*, *"whatsapp mom that I'll be late"*, *"shutdown"*.
+
+### Confirmation before anything risky
+
+`shutdown`, `restart`, `send_email`, and `send_whatsapp` never run straight
+off a classification — deskbot always shows a Yes/No dialog first (defaulting
+to No) naming exactly what it's about to do (who it's emailing/WhatsApping and
+what it'll say, or that it's about to shut down/restart), and only acts on
+"Yes". A misheard or misclassified request can't silently email someone,
+message a contact, or touch your machine's power state.
+
+`send_whatsapp` is also deliberately **not** fully automatic even after you
+confirm: it opens a `wa.me` "click to chat" link (WhatsApp's own supported
+mechanism, not a scripted/unofficial send) with your message pre-filled — you
+still hit send yourself in WhatsApp. That's intentional: it avoids GUI-automation
+dependencies and any risk of WhatsApp treating the account as running an
+unofficial bot.
 
 **Real sprites.** Implement `SpriteRenderer.draw()` with the same signature as
 `VectorRenderer.draw()` and swap the one line in `main.py`.
