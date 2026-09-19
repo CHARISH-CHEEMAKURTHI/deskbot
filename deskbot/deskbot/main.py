@@ -9,6 +9,7 @@ import sys
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
+from . import whatsapp
 from .activity import ActivityWatcher
 from .config import Config
 from .expressions import VectorRenderer
@@ -52,6 +53,10 @@ def main() -> int:
     activity_timer.setInterval(max(500, int(cfg.activity_poll_interval * 1000)))
     activity_timer.timeout.connect(lambda: watcher.poll(pet.brain))
     activity_timer.start()
+
+    whatsapp_server = whatsapp.start(cfg, pet.whatsapp_bridge)
+    if whatsapp_server is not None:
+        app.aboutToQuit.connect(whatsapp_server.shutdown)
 
     # let Ctrl+C in the terminal kill it
     signal.signal(signal.SIGINT, signal.SIG_DFL)

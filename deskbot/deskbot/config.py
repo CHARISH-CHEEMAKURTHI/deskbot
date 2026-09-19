@@ -76,6 +76,27 @@ class Config:
     # {"mom": "15551234567"}. Anyone not in this list is refused.
     whatsapp_contacts: dict = field(default_factory=dict)
 
+    # --- two-way WhatsApp chat (official Business Cloud API) ----------
+    # Off by default -- needs a one-time Meta Developer setup (see README).
+    # This is separate from send_whatsapp above: that only ever sends
+    # (via a plain wa.me link); this can also *receive*, which is why it
+    # needs Meta's real API rather than an unofficial WhatsApp Web hack.
+    whatsapp_business_enabled: bool = False
+    whatsapp_access_token: str = ""     # or DESKBOT_WHATSAPP_ACCESS_TOKEN env var
+    whatsapp_phone_number_id: str = ""
+    whatsapp_verify_token: str = ""     # a token *you* choose; must match Meta's webhook config
+    whatsapp_webhook_port: int = 8765
+    whatsapp_api_base: str = "https://graph.facebook.com/v20.0"
+    # Only numbers in this list can chat with the bot at all -- anyone
+    # else messaging your business number is silently ignored. Same
+    # phone-number format as whatsapp_contacts (country code, no "+").
+    whatsapp_allowed_numbers: list = field(default_factory=list)
+    # How many past turns (per sender) to keep and feed back as context.
+    chat_memory_turns: int = 20
+    # How confident the intent classifier must be to treat an incoming
+    # WhatsApp message as an action rather than plain conversation.
+    chat_action_confidence: float = 0.6
+
     extra: dict = field(default_factory=dict)
 
     # ---------------------------------------------------------------
