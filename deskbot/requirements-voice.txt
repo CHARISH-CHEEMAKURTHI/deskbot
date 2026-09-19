@@ -1,0 +1,18 @@
+# Optional extras for voice ("hey celebi"). Not needed unless
+# "voice_enabled": true -- deskbot runs fine without any of this.
+#
+# System packages first (Debian/Ubuntu/Pop!_OS):
+#   sudo apt install portaudio19-dev python3-dev espeak-ng ffmpeg
+#     portaudio19-dev  -> PyAudio builds against it (mic capture)
+#     espeak-ng        -> what pyttsx3 actually speaks through on Linux
+#     ffmpeg           -> Whisper uses it to decode audio
+#
+# Then:  ./.venv/bin/pip install -r requirements-voice.txt
+# Note openai-whisper pulls in PyTorch, so this is a ~2GB install.
+
+openwakeword>=0.6.0
+PyAudio>=0.2.13
+SpeechRecognition>=3.10
+openai-whisper>=20231117
+pyttsx3>=2.90
+numpy>=1.24

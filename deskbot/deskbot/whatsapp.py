@@ -25,48 +25,9 @@ import threading
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
 
 from . import intent as intent_mod
-from .config import CONFIG_DIR
-
-HISTORY_PATH = CONFIG_DIR / "whatsapp_history.json"
-
-_history_lock = threading.Lock()
-
-
-def _load_all_history() -> dict:
-    if not HISTORY_PATH.exists():
-        return {}
-    try:
-        return json.loads(HISTORY_PATH.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}
-
-
-def _save_all_history(data: dict) -> None:
-    try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        HISTORY_PATH.write_text(json.dumps(data, indent=2))
-    except OSError as exc:
-        print(f"[deskbot] could not save WhatsApp chat history: {exc}")
-
-
-def load_history(sender: str) -> list[tuple[str, str]]:
-    with _history_lock:
-        data = _load_all_history()
-    return [tuple(turn) for turn in data.get(sender, [])]
-
-
-def append_history(cfg, sender: str, user_text: str, bot_text: str) -> None:
-    turns = int(getattr(cfg, "chat_memory_turns", 20))
-    with _history_lock:
-        data = _load_all_history()
-        data.setdefault(sender, [])
-        data[sender].append(["user", user_text])
-        data[sender].append(["bot", bot_text])
-        data[sender] = data[sender][-turns * 2 :]
-        _save_all_history(data)
+from . import memory
 
 
 def send_message(cfg, to: str, text: str) -> bool:
@@ -104,7 +65,7 @@ def send_message(cfg, to: str, text: str) -> bool:
 
 def handle_incoming(cfg, bridge, sender: str, text: str) -> None:
     """Runs on the webhook server's background thread. `bridge` is
-    PetWindow's _WhatsAppBridge -- the only thread-safe way to reach the
+    PetWindow's _AgentBridge -- the only thread-safe way to reach the
     GUI thread for a confirmation dialog or the desktop bot's own mood."""
     allowed = [str(n).strip() for n in getattr(cfg, "whatsapp_allowed_numbers", []) or []]
     if allowed and sender not in allowed:
@@ -120,14 +81,13 @@ def handle_incoming(cfg, bridge, sender: str, text: str) -> None:
     if parsed is not None and parsed.intent != "unknown" and parsed.confidence >= threshold:
         reply = bridge.run_action_blocking(parsed, via="WhatsApp")
     else:
-        history = load_history(sender)
         try:
-            reply = intent_mod.chat(cfg, history, text)
+            reply = intent_mod.chat(cfg, memory.load(sender), text)
         except Exception as exc:
             reply = f"something went wrong: {exc}"
         bridge.say_async(reply)
 
-    append_history(cfg, sender, text, reply)
+    memory.append(cfg, sender, text, reply)
     send_message(cfg, sender, reply)
 
 

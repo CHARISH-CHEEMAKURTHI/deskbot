@@ -9,7 +9,7 @@ import sys
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
-from . import whatsapp
+from . import voice, whatsapp
 from .activity import ActivityWatcher
 from .config import Config
 from .expressions import VectorRenderer
@@ -76,9 +76,13 @@ def main() -> int:
     activity_timer.timeout.connect(lambda: watcher.poll(pet.brain))
     activity_timer.start()
 
-    whatsapp_server = whatsapp.start(cfg, pet.whatsapp_bridge)
+    whatsapp_server = whatsapp.start(cfg, pet.agent_bridge)
     if whatsapp_server is not None:
         app.aboutToQuit.connect(whatsapp_server.shutdown)
+
+    pet.voice_listener = voice.start(cfg, pet.agent_bridge)
+    if pet.voice_listener is not None:
+        app.aboutToQuit.connect(pet.voice_listener.stop)
 
     # let Ctrl+C in the terminal kill it
     signal.signal(signal.SIGINT, signal.SIG_DFL)

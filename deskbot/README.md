@@ -3,8 +3,8 @@
 A small animated bot that lives on your Linux desktop, walks after your cursor,
 pulls faces, notices when your machine is busy, and can now do a few things
 for you. Phase 1: **movement + expressions**. Phase 2: **activity awareness**.
-Phase 3: **actions**. Voice control and a fuller AI agent are still ahead —
-see below.
+Phase 3: **actions**, including chat over WhatsApp and **voice** ("hey
+celebi").
 
 ## Run it
 
@@ -32,6 +32,8 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 | Uncheck "Follow cursor" in the right-click menu | bot stops chasing you and just roams the desktop on its own |
 | Uncheck "Notice what I'm doing" in the right-click menu | turns off activity awareness (Phase 2) |
 | "Ask deskbot…" in the right-click menu | type a request ("open firefox", "search cats on youtube", "what time is it") and it does it (Phase 3) |
+| Say "hey celebi", then your request | same thing by voice, spoken back to you (needs the voice extras) |
+| Tick "Listen for \"hey celebi\"" in the right-click menu | mutes/unmutes wake-word listening live |
 
 ## Expressions (11)
 
@@ -55,7 +57,11 @@ deskbot/
                    send email, send WhatsApp, shutdown/restart (phase 3)
   whatsapp.py     two-way WhatsApp chat over the official Business API:
                    webhook server, per-sender history, dispatch (phase 3)
-  doctor.py       `--doctor` self-check: session/cursor/Ollama/X11/config
+  memory.py       rolling per-channel conversation history on disk
+  voice.py        "hey celebi": wake word -> speech-to-text -> the same
+                   actions/chat as everything else -> spoken reply
+  assets/         hey_celebi.onnx (the trained wake-word model)
+  doctor.py       `--doctor` self-check: session/cursor/Ollama/X11/voice/config
   pet.py          PetWindow: transparent always-on-top window, physics, menu
   main.py         entry point
 ```
@@ -175,13 +181,40 @@ phone while you're out won't do anything until you're back to click Yes.
 **Real sprites.** Implement `SpriteRenderer.draw()` with the same signature as
 `VectorRenderer.draw()` and swap the one line in `main.py`.
 
-## Where voice + a fuller agent plug in
+## Voice: "hey celebi"
 
-The intent/command split above is deliberately the same shape a voice
-frontend would use: swap "Ask deskbot…"'s text dialog for a wake-word
-listener + speech-to-text, keep calling `intent.classify()` /
-`intent.run()` exactly as-is, and speak `CommandResult.message` back
-instead of (or alongside) the speech bubble.
+Say **"hey celebi"**, then your request. deskbot transcribes it and runs it
+through the *same* pipeline as a typed "Ask deskbot…" — so actions, the
+confirmation dialogs, and the conversational fallback all behave identically
+no matter how you asked — then speaks the answer back (and shows it in the
+speech bubble).
+
+Ported from the celebi prototype: openWakeWord for the wake word (the trained
+`hey_celebi.onnx` model ships in `deskbot/assets/`, no copying needed),
+Whisper for speech-to-text, pyttsx3 for the reply.
+
+**Off by default**, because the extras are a heavy dependency tree:
+
+```bash
+sudo apt install portaudio19-dev python3-dev espeak-ng ffmpeg
+./.venv/bin/pip install -r requirements-voice.txt     # ~2GB: pulls in PyTorch
+```
+
+Then set `"voice_enabled": true` in `~/.config/deskbot/config.json`, or tick
+**Listen for "hey celebi"** in the right-click menu (which also mutes/unmutes
+it live without a restart). `python -m deskbot --doctor` reports exactly
+what's missing, including whether a microphone is visible.
+
+Tuning knobs: `wake_threshold` (0–1, lower triggers more eagerly),
+`stt_whisper_model` (`tiny`/`base`/`small`/…), `listen_timeout`,
+`speak_replies` (false keeps replies in the bubble only), `tts_rate`,
+`tts_voice_index`, and `wake_word_model` to point at a different `.onnx`.
+
+Spoken conversation keeps its own memory thread (`chat_history.json`, key
+`voice`), separate from each WhatsApp sender's.
+
+Risky actions still confirm on the desktop: saying "shut down the pc" pops the
+same Yes/No dialog rather than just doing it.
 
 ## Notes for your setup
 

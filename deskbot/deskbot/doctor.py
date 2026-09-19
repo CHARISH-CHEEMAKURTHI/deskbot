@@ -173,14 +173,53 @@ def _check_actions(cfg) -> None:
         _line("  allowed senders", ", ".join(allowed) if allowed else "NONE SET (nobody can chat)")
 
 
-def _check_voice() -> None:
-    _section("voice")
-    _line("wake word / STT / TTS", "NOT IMPLEMENTED YET")
-    print(
-        '\n  "hey celebi" does nothing in deskbot -- voice was never built here.\n'
-        "  It exists as a prototype in the separate celebi repo; porting it in is\n"
-        "  the remaining roadmap item."
-    )
+def _check_voice(cfg) -> None:
+    _section('voice ("hey celebi")')
+    from .voice import missing_requirements, wake_word_model_path
+
+    _line("voice_enabled", getattr(cfg, "voice_enabled", False))
+
+    missing = missing_requirements(cfg)
+    _line("ready to run", "no -- missing: " + ", ".join(missing) if missing else "yes")
+
+    model = wake_word_model_path(cfg)
+    _line("wake-word model", f"{model} {'(found)' if model.exists() else '(MISSING)'}")
+
+    try:
+        import pyaudio  # noqa: F401
+
+        have_pyaudio = True
+    except ImportError:
+        have_pyaudio = False
+
+    if have_pyaudio:
+        try:
+            import pyaudio
+
+            pa = pyaudio.PyAudio()
+            inputs = [
+                pa.get_device_info_by_index(i)["name"]
+                for i in range(pa.get_device_count())
+                if pa.get_device_info_by_index(i).get("maxInputChannels", 0) > 0
+            ]
+            pa.terminate()
+            _line("input devices", ", ".join(inputs) if inputs else "NONE -- no microphone")
+        except Exception as exc:
+            _line("input devices", f"could not enumerate: {exc}")
+
+    if missing:
+        print(
+            "\n  Fix: sudo apt install portaudio19-dev python3-dev espeak-ng ffmpeg\n"
+            "       ./.venv/bin/pip install -r requirements-voice.txt\n"
+            '  Then set "voice_enabled": true in ~/.config/deskbot/config.json\n'
+            "  (openai-whisper pulls in PyTorch, so expect a ~2GB download)."
+        )
+    elif not getattr(cfg, "voice_enabled", False):
+        print(
+            '\n  Extras are installed -- set "voice_enabled": true in\n'
+            "  ~/.config/deskbot/config.json, or tick 'Listen for \"hey celebi\"'\n"
+            "  in the right-click menu."
+        )
 
 
 def run(cfg) -> int:
@@ -191,6 +230,6 @@ def run(cfg) -> int:
     _check_active_window()
     _check_ollama(cfg)
     _check_actions(cfg)
-    _check_voice()
+    _check_voice(cfg)
     print("\ndone -- paste this whole output if you're asking for help.\n")
     return 0

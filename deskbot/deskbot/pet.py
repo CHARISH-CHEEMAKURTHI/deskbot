@@ -55,10 +55,11 @@ class _ClassifyWorker(QThread):
             self.classified.emit(None, exc)
 
 
-class _WhatsAppBridge(QObject):
-    """Thread-safe hand-off from whatsapp.py's webhook server (its own
-    background thread) into the GUI thread -- for anything that needs
-    Qt: a confirmation dialog, or the desktop bot's own mood/speech.
+class _AgentBridge(QObject):
+    """Thread-safe hand-off from any off-GUI-thread channel (whatsapp.py's
+    webhook server, voice.py's wake-word listener) into the GUI thread --
+    for anything that needs Qt: a confirmation dialog, or the desktop
+    bot's own mood/speech.
 
     Qt signals are safe to emit from any thread; the connected slot still
     runs on whichever thread owns this object, which is the GUI thread
@@ -73,7 +74,7 @@ class _WhatsAppBridge(QObject):
         self._run_action_signal.connect(self._on_run_action)
         self._say_signal.connect(self._on_say)
 
-    def run_action_blocking(self, parsed, via: str = "WhatsApp", timeout: float = 120.0) -> str:
+    def run_action_blocking(self, parsed, via: str = "chat", timeout: float = 120.0) -> str:
         """Call from a non-GUI thread. Blocks until the GUI thread has
         confirmed (if needed) and executed the action; returns the
         resulting message to speak/send back."""
@@ -152,7 +153,8 @@ class PetWindow(QWidget):
         self._dragging = False
         self._drag_offset = QPoint()
         self._intent_worker: _ClassifyWorker | None = None
-        self.whatsapp_bridge = _WhatsAppBridge(self)
+        self.agent_bridge = _AgentBridge(self)
+        self.voice_listener = None  # set by main.py once voice.start() has run
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
@@ -319,6 +321,11 @@ class PetWindow(QWidget):
         activity_aware.toggled.connect(lambda v: setattr(self.cfg, "activity_aware", v))
         menu.addAction(activity_aware)
 
+        listening = QAction('Listen for "hey celebi"', menu, checkable=True)
+        listening.setChecked(getattr(self.cfg, "voice_enabled", False))
+        listening.toggled.connect(self._toggle_voice)
+        menu.addAction(listening)
+
         moods = menu.addMenu("Mood")
         for expr in Expression:
             act = QAction(expr.label, moods)
@@ -346,6 +353,25 @@ class PetWindow(QWidget):
     def _toggle_follow(self, value: bool) -> None:
         self.cfg.follow_cursor = value
         self.brain.say("following you" if value else "doing my own thing")
+
+    def _toggle_voice(self, value: bool) -> None:
+        """Mutes/unmutes wake-word detection live. The listener thread reads
+        cfg.voice_enabled every loop, so this takes effect immediately -- but
+        only if the thread started at launch, which needs voice_enabled true
+        in the config plus the voice extras installed."""
+        self.cfg.voice_enabled = value
+        if not value:
+            self.brain.say("not listening")
+            return
+        from . import voice
+
+        if self.voice_listener is None or not self.voice_listener.is_alive():
+            self.voice_listener = voice.start(self.cfg, self.agent_bridge)
+        self.brain.say(
+            'listening for "hey celebi"'
+            if self.voice_listener is not None
+            else "voice extras aren't installed"
+        )
 
     def _ask_dialog(self) -> None:
         text, ok = QInputDialog.getText(self, "Ask deskbot", "What do you need?")
