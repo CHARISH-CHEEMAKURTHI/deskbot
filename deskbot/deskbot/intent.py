@@ -27,11 +27,19 @@ Known intents:
 - play_music: query = song or artist to search for on YouTube
 - get_time: no fields needed
 - send_email: target = recipient email address, query = message body
+- send_whatsapp: target = contact name, MUST be exactly one name from the
+  "Known WhatsApp contacts" list below (case-insensitive) -- never invent
+  one or use a phone number directly; query = message body
 - shutdown: no fields needed
 - restart: no fields needed
 
 Never leave target or query empty if the request implies one. If nothing
-matches, use intent "unknown"."""
+matches, or a send_whatsapp target isn't in the known contacts list, use
+intent "unknown"."""
+
+# Anything that messages a real person or touches the machine's power
+# state gets a confirmation dialog before it runs -- see pet.py.
+CONFIRM_INTENTS = {"shutdown", "restart", "send_email", "send_whatsapp"}
 
 
 class Intent(BaseModel):
@@ -45,17 +53,40 @@ class Intent(BaseModel):
 def classify(cfg, text: str) -> Intent | None:
     import ollama
 
+    contacts = getattr(cfg, "whatsapp_contacts", {}) or {}
+    prompt = SYSTEM_PROMPT
+    if contacts:
+        prompt += "\n\nKnown WhatsApp contacts: " + ", ".join(sorted(contacts))
+
     client = ollama.Client(host=cfg.ollama_url)
     response = client.chat(
         model=cfg.ollama_model,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": text},
         ],
         format=Intent.model_json_schema(),
         options={"temperature": 0},
     )
     return Intent.model_validate_json(response.message.content)
+
+
+def needs_confirmation(parsed: Intent) -> bool:
+    return parsed.intent in CONFIRM_INTENTS
+
+
+def confirmation_text(cfg, parsed: Intent) -> str:
+    if parsed.intent == "shutdown":
+        return "Shut down the computer now?"
+    if parsed.intent == "restart":
+        return "Restart the computer now?"
+    if parsed.intent == "send_email":
+        return f"Send an email to {parsed.target}?\n\n{parsed.query}"
+    if parsed.intent == "send_whatsapp":
+        number = commands.resolve_whatsapp_contact(cfg, parsed.target)
+        who = f"{parsed.target} ({number})" if number else str(parsed.target)
+        return f"Open WhatsApp to {who} with this message?\n\n{parsed.query}"
+    return f"Go ahead with {parsed.intent}?"
 
 
 def run(cfg, parsed: Intent) -> commands.CommandResult:
@@ -71,6 +102,8 @@ def run(cfg, parsed: Intent) -> commands.CommandResult:
         return commands.get_time()
     if parsed.intent == "send_email":
         return commands.send_email(parsed.target, parsed.query, cfg)
+    if parsed.intent == "send_whatsapp":
+        return commands.send_whatsapp(parsed.target, parsed.query, cfg)
     if parsed.intent == "shutdown":
         return commands.shutdown()
     if parsed.intent == "restart":

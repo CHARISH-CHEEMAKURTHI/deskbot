@@ -121,6 +121,38 @@ def send_email(to: str | None, body: str | None, cfg) -> CommandResult:
     return CommandResult(f"sent to {to}")
 
 
+def resolve_whatsapp_contact(cfg, name: str | None) -> str | None:
+    """Looks up `name` in the configured allow-list. Returns the phone
+    number, or None if `name` is missing or not on the list -- deskbot
+    will only ever WhatsApp people you've explicitly added."""
+    if not name:
+        return None
+    contacts = getattr(cfg, "whatsapp_contacts", {}) or {}
+    return contacts.get(name.strip().lower())
+
+
+def send_whatsapp(contact: str | None, message: str | None, cfg) -> CommandResult:
+    if not contact or not message:
+        return CommandResult("need a contact and a message to send a WhatsApp.", ok=False)
+
+    number = resolve_whatsapp_contact(cfg, contact)
+    if not number:
+        contacts = getattr(cfg, "whatsapp_contacts", {}) or {}
+        known = ", ".join(sorted(contacts)) or "nobody yet"
+        return CommandResult(
+            f"{contact} isn't in your WhatsApp contacts -- known contacts: {known}. "
+            "Add them to whatsapp_contacts in config.json.",
+            ok=False,
+        )
+
+    # A wa.me "click to chat" link, not a scripted send -- it's WhatsApp's
+    # own supported mechanism (no unofficial automation, no risk to the
+    # account), but it only pre-fills the chat; you still hit send yourself.
+    url = f"https://wa.me/{number}?text={urllib.parse.quote(message)}"
+    webbrowser.open(url)
+    return CommandResult(f"opened WhatsApp with your message to {contact} -- hit send to confirm")
+
+
 def shutdown() -> CommandResult:
     subprocess.Popen(["systemctl", "poweroff"])
     return CommandResult("shutting down, goodbye boss")

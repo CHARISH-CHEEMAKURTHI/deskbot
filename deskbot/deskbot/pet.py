@@ -22,19 +22,22 @@ from PyQt6.QtGui import (
     QPainterPath,
     QPen,
 )
-from PyQt6.QtWidgets import QApplication, QInputDialog, QMenu, QWidget
+from PyQt6.QtWidgets import QApplication, QInputDialog, QMenu, QMessageBox, QWidget
 
 from .behavior import Brain, Mode
 from .commands import CommandResult
 from .expressions import Expression
 
 
-class _IntentWorker(QThread):
-    """Runs Phase 3's classify-then-act off the GUI thread -- the Ollama
-    call is a blocking network request, and this keeps the bot animating
-    while it waits."""
+class _ClassifyWorker(QThread):
+    """Runs Phase 3's intent classification off the GUI thread -- the
+    Ollama call is a blocking network request, and this keeps the bot
+    animating while it waits. Deliberately classification-only: anything
+    that actually *acts* (including whether to ask for confirmation first)
+    happens back on the GUI thread in PetWindow._on_classified, since a
+    confirmation dialog has to run there."""
 
-    done = pyqtSignal(object)
+    classified = pyqtSignal(object, object)  # (Intent | None, Exception | None)
 
     def __init__(self, cfg, text: str, parent=None):
         super().__init__(parent)
@@ -46,14 +49,9 @@ class _IntentWorker(QThread):
 
         try:
             parsed = intent_mod.classify(self.cfg, self.text)
-            result = (
-                intent_mod.run(self.cfg, parsed)
-                if parsed is not None
-                else CommandResult("didn't understand that.", ok=False)
-            )
+            self.classified.emit(parsed, None)
         except Exception as exc:
-            result = CommandResult(f"something went wrong: {exc}", ok=False)
-        self.done.emit(result)
+            self.classified.emit(None, exc)
 
 
 class PetWindow(QWidget):
@@ -90,7 +88,7 @@ class PetWindow(QWidget):
 
         self._dragging = False
         self._drag_offset = QPoint()
-        self._intent_worker: _IntentWorker | None = None
+        self._intent_worker: _ClassifyWorker | None = None
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
@@ -283,11 +281,40 @@ class PetWindow(QWidget):
         if not ok or not text.strip():
             return
         self.brain.set_mood(Expression.THINKING, 30.0, say="on it...")
-        worker = _IntentWorker(self.cfg, text.strip(), self)
-        worker.done.connect(self._on_command_result)
+        worker = _ClassifyWorker(self.cfg, text.strip(), self)
+        worker.classified.connect(self._on_classified)
         worker.finished.connect(worker.deleteLater)
         self._intent_worker = worker  # keep a reference so it isn't GC'd mid-flight
         worker.start()
+
+    def _on_classified(self, parsed, error: Exception | None) -> None:
+        from . import intent as intent_mod
+
+        if error is not None:
+            self._on_command_result(CommandResult(f"something went wrong: {error}", ok=False))
+            return
+        if parsed is None:
+            self._on_command_result(CommandResult("didn't understand that.", ok=False))
+            return
+
+        if intent_mod.needs_confirmation(parsed):
+            question = intent_mod.confirmation_text(self.cfg, parsed)
+            choice = QMessageBox.question(
+                self,
+                "deskbot: confirm",
+                question,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                self._on_command_result(CommandResult("okay, not doing that.", ok=True))
+                return
+
+        try:
+            result = intent_mod.run(self.cfg, parsed)
+        except Exception as exc:
+            result = CommandResult(f"something went wrong: {exc}", ok=False)
+        self._on_command_result(result)
 
     def _on_command_result(self, result: CommandResult) -> None:
         expr = Expression.HAPPY if result.ok else Expression.SAD

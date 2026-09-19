@@ -71,6 +71,11 @@ class Config:
     smtp_user: str = ""
     smtp_password: str = ""
 
+    # send_whatsapp only ever messages people listed here -- lowercase name
+    # -> phone number with country code, no "+" or spaces, e.g.
+    # {"mom": "15551234567"}. Anyone not in this list is refused.
+    whatsapp_contacts: dict = field(default_factory=dict)
+
     extra: dict = field(default_factory=dict)
 
     # ---------------------------------------------------------------
