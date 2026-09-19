@@ -49,9 +49,14 @@ class Brain:
         self.mode = Mode.REST
         self.expression = Expression.NEUTRAL
 
-        self._cursor_last = (0.0, 0.0)
+        # None, not (0, 0) -- a zero sentinel makes the first real sample
+        # look like a huge jump, which would mark the cursor as "moving"
+        # before we've seen it move at all.
+        self._cursor_last: tuple[float, float] | None = None
         self._cursor_speed = 0.0
         self._cursor_still_for = 0.0
+        self._cursor_ever_moved = False
+        self._blind_warned = False
         self._wander_target: tuple[float, float] | None = None
         self._next_wander = 0.0
         self._next_chat = time.monotonic() + random.uniform(25, 60)
@@ -95,20 +100,47 @@ class Brain:
 
     # -- internals -------------------------------------------------------
     def _track_cursor(self, dt: float, cursor) -> None:
+        if self._cursor_last is None:
+            self._cursor_last = cursor
+            self._cursor_speed = 0.0
+            return
         moved = math.dist(cursor, self._cursor_last)
         self._cursor_speed = moved / dt if dt > 0 else 0.0
         if moved > 3:
             self._cursor_still_for = 0.0
+            self._cursor_ever_moved = True
         else:
             self._cursor_still_for += dt
         self._cursor_last = cursor
+
+    def _cursor_is_blind(self) -> bool:
+        """True once it's clear we're getting no cursor data at all, rather
+        than watching an idle user. On Wayland, XWayland only sees the
+        pointer while it's over one of our own windows, so QCursor.pos()
+        freezes the moment the cursor moves anywhere else -- which would
+        otherwise look like "user went away" and put the bot to sleep
+        forever, standing still. Roam instead."""
+        if self._cursor_ever_moved or not getattr(self.cfg, "wayland_session", False):
+            return False
+        return self._cursor_still_for > max(8.0, self.cfg.cursor_idle_before_wander)
 
     def _pick_mode(self, dt: float, cursor, bounds, now: float) -> None:
         if self.mode is Mode.DRAGGED:
             return
 
-        if not self.cfg.follow_cursor:
-            if self.mode not in (Mode.WANDER, Mode.SLEEP):
+        blind = self._cursor_is_blind()
+        if not self.cfg.follow_cursor or blind:
+            if blind and not self._blind_warned:
+                self._blind_warned = True
+                self.say("can't see your cursor on Wayland -- roaming instead", 8.0)
+                print(
+                    "[deskbot] No cursor movement is reaching us -- on Wayland, "
+                    "XWayland can only see the pointer over our own windows, so "
+                    "cursor-following can't work. Roaming the desktop instead. "
+                    "Run `python -m deskbot --doctor` for the details and the fix."
+                )
+            # Blind means never sleep: that "idle" timer is measuring stale data.
+            if blind or self.mode not in (Mode.WANDER, Mode.SLEEP):
                 self.mode = Mode.WANDER
             return
 

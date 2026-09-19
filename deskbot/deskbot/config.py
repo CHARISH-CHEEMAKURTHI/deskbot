@@ -97,6 +97,18 @@ class Config:
     # WhatsApp message as an action rather than plain conversation.
     chat_action_confidence: float = 0.6
 
+    # --- voice ("hey celebi" -> action/chat -> spoken reply) ----------
+    # Off by default: the extras are a heavy dependency tree (PyAudio,
+    # Whisper, openWakeWord) -- see requirements-voice.txt.
+    voice_enabled: bool = False
+    wake_word_model: str = ""        # defaults to the bundled hey_celebi.onnx
+    wake_threshold: float = 0.3      # 0-1; lower triggers more eagerly
+    stt_whisper_model: str = "base"  # tiny/base/small/medium/large
+    listen_timeout: float = 10.0     # seconds to wait for you to start talking
+    speak_replies: bool = True       # False = replies stay in the speech bubble
+    tts_rate: int = 150
+    tts_voice_index: int = 1
+
     extra: dict = field(default_factory=dict)
 
     # ---------------------------------------------------------------
