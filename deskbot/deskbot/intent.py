@@ -11,6 +11,7 @@ install that never uses this feature doesn't need it at startup.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 
@@ -55,6 +56,48 @@ class Intent(BaseModel):
 
 
 _announced_fallback: str | None = None
+
+# Reasoning models (qwen3, deepseek-r1, ...) wrap their scratchpad in
+# <think>...</think> and emit it as part of the reply. Left in, it breaks
+# JSON parsing for classify() and gets read aloud verbatim by voice.
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_OPEN_THINK = re.compile(r"<think>.*\Z", re.DOTALL | re.IGNORECASE)
+
+
+def strip_thinking(text: str) -> str:
+    """Drop a reasoning model's <think> scratchpad from its reply."""
+    text = _THINK_BLOCK.sub("", text or "")
+    text = _OPEN_THINK.sub("", text)  # truncated/unclosed block
+    return text.strip()
+
+
+def _first_json_object(text: str) -> str:
+    """The first balanced {...} in `text`. Even with Ollama's schema
+    enforcement, a reasoning model can wrap or prefix its JSON, so find the
+    object rather than trusting the whole string to parse."""
+    start = text.find("{")
+    if start == -1:
+        return text
+    depth = 0
+    in_string = escaped = False
+    for i, ch in enumerate(text[start:], start):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return text[start:]
 
 
 def available_models(cfg) -> list[str]:
@@ -111,7 +154,8 @@ def classify(cfg, text: str) -> Intent | None:
         format=Intent.model_json_schema(),
         options={"temperature": 0},
     )
-    return Intent.model_validate_json(response.message.content)
+    content = strip_thinking(response.message.content or "")
+    return Intent.model_validate_json(_first_json_object(content))
 
 
 def needs_confirmation(parsed: Intent) -> bool:
@@ -159,7 +203,7 @@ def chat(cfg, history: list[tuple[str, str]], text: str) -> str:
     response = client.chat(
         model=resolve_model(cfg), messages=messages, options={"temperature": 0.7}
     )
-    return response.message.content.strip()
+    return strip_thinking(response.message.content or "")
 
 
 def run(cfg, parsed: Intent) -> commands.CommandResult:
